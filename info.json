@@ -1,0 +1,11 @@
+{
+  "name": "carry",
+  "version": "0.1.0",
+  "title": "Carry",
+  "author": "mtopfox",
+  "factorio_version": "2.0",
+  "description": "Pick up a section of your base and put it down somewhere else, as it is: buildings with what's in them, belts with their items, recipes, fluids and wires. Drag over it with the Carry tool, then click where it goes (R turns it). Instant, no robots.",
+  "dependencies": [
+    "base >= 2.0"
+  ]
+}

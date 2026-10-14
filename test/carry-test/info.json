@@ -1,0 +1,2 @@
+{"name": "carry-test", "version": "0.0.1", "title": "carry test", "author": "mtopfox", "factorio_version": "2.0",
+ "dependencies": ["base", "carry"]}

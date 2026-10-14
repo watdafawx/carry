@@ -1,0 +1,7 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 2026-10-14
+  Features:
+    - The Carry tool: drag over a section of your base, click where it goes (R turns it). It moves at once, as it
+      is: contents, belt items, recipes and progress, fluids and the wires within it kept. Poles that had power from
+      outside are joined to the nearest pole where it lands. A card after each move has Move back.
