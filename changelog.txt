@@ -1,4 +1,10 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: 2026-10-15
+  Features:
+    - Shift-click to put a section down clears the trees, rocks and cliffs in its way (as the game's shift-paste):
+      trees and rocks are mined into your inventory, cliffs removed. A plain click is still blocked by them.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.0
 Date: 2026-10-14
   Features:

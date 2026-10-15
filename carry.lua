@@ -24,6 +24,9 @@ local RAILS = {
   ["rail-ramp"] = true, ["rail-support"] = true, ["rail-signal"] = true, ["rail-chain-signal"] = true,
 }
 M.RAILS = RAILS
+-- what a shift-click drop clears out of the way (as the game's shift-paste marks them): trees, rocks, cliffs
+local OBSTACLES = { ["tree"] = true, ["simple-entity"] = true, ["cliff"] = true }
+local function obstacle(o) return OBSTACLES[o.type] and o.force.name == "neutral" end
 
 local function key(name, p) return string.format("%s|%.2f|%.2f", name, p.x, p.y) end
 
@@ -240,13 +243,15 @@ local function collide(a, b)
   return false
 end
 
---- the first thing of the base (not of the section) in the way of a target: -> the entity, or nil
-local function in_way(surface, ents, targets, index)
+--- the first thing of the base (not of the section) in the way of a target (trees, rocks and cliffs left out when
+--- they're to be cleared): -> the entity, or nil
+local function in_way(surface, ents, targets, index, clear)
   for i, t in ipairs(targets) do
     local proto = ents[i].prototype
     for _, o in pairs(surface.find_entities_filtered({ area = box_at(proto, t) })) do
       if o.valid and not index[key(o.name, o.position)] and o.type ~= "character" and o.type ~= "item-entity"
           and o.type ~= "entity-ghost" and o.type ~= "item-request-proxy" and o.type ~= "resource"
+          and not (clear and obstacle(o))
           and o.prototype.collision_mask and collide(proto, o.prototype) then
         return o, i
       end
@@ -254,11 +259,30 @@ local function in_way(surface, ents, targets, index)
   end
 end
 
+--- the trees, rocks and cliffs in the way of the targets cleared: mined by `miner` (a player: what they give goes
+--- into their inventory) where it can, else removed. -> how many
+local function clear_way(surface, ents, targets, miner)
+  local n = 0
+  for i, t in ipairs(targets) do
+    local proto = ents[i].prototype
+    for _, o in pairs(surface.find_entities_filtered({ area = box_at(proto, t), type = { "tree", "simple-entity", "cliff" } })) do
+      if o.valid and obstacle(o) and o.prototype.collision_mask and collide(proto, o.prototype) then
+        if o.type ~= "cliff" and miner and miner.valid then pcall(miner.mine_entity, o, true) end
+        if o.valid then o.destroy({ do_cliff_correction = o.type == "cliff", raise_destroy = true }) end
+        n = n + 1
+      end
+    end
+  end
+  return n
+end
+
 --- `ents` (on `surface`) moved to `targets` ({i = {position, direction}}), turned k quarters (0: a plain shift).
 --- powered: {i = true} poles to join to power outside even if they have no wire there now (they had before an
---- earlier move). -> true, {ents = the moved entities (in order), dropped = circuit wires to outside dropped,
---- powered = the poles that had power from outside (for the next move)} or false, why (a locale key), where, what
-function M.move(surface, ents, targets, k, also)
+--- earlier move). clear: trees, rocks and cliffs in the way cleared (a player: mined into their inventory; or true).
+--- -> true, {ents = the moved entities (in order), dropped = circuit wires to outside dropped, cleared = trees and
+--- rocks cleared, powered = the poles that had power from outside (for the next move)} or false, why (a locale key),
+--- where, what
+function M.move(surface, ents, targets, k, also, clear)
   local force = ents[1].force
   local index = {}
   for i, e in ipairs(ents) do
@@ -266,8 +290,9 @@ function M.move(surface, ents, targets, k, also)
     index[key(e.name, e.position)] = i
     if k % 4 ~= 0 and RAILS[e.type] then return false, "carry.no-turn-rails" end
   end
-  local blocker = in_way(surface, ents, targets, index)
+  local blocker = in_way(surface, ents, targets, index, clear)
   if blocker then return false, "carry.blocked", blocker.position, blocker.name end
+  local cleared = clear and clear_way(surface, ents, targets, clear ~= true and clear or nil) or 0
   local inner, dropped, powered = wires(ents, index)
   for i in pairs(also or {}) do powered[i] = true end
   local from = {}
@@ -324,7 +349,7 @@ function M.move(surface, ents, targets, k, also)
   local list = {}
   for i = 1, #ents do list[i] = moved[i] end
   M.rejoin(surface, moved, powered)
-  return true, { ents = list, dropped = dropped, from = from, powered = powered }
+  return true, { ents = list, dropped = dropped, cleared = cleared, from = from, powered = powered }
 end
 
 --- each pole of `moved` ({i = entity}) marked in `powered` joined by a copper wire to the nearest pole in reach that

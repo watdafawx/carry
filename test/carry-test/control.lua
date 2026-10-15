@@ -143,6 +143,27 @@ script.on_event(defines.events.on_tick, function(e)
   check(b3.powered, "after a blocked move: not powered")
   block.destroy()
 
+  -- trees and a rock where it lands: blocked, unless cleared (a shift-click drop)
+  local trees = {}
+  for _, p in ipairs({ { 46.5, 3.5 }, { 42.5, 2.5 }, { 49.5, 5.5 } }) do  -- (assembler, chest, pipe)
+    trees[#trees + 1] = s.create_entity({ name = "tree-01", position = p })
+  end
+  local rock = s.create_entity({ name = "big-rock", position = { 44, 0.5 } })
+  check(#trees == 3 and rock, "trees: not all made")
+  r = remote.call("carry", "move_by", "nauvis", "player", AREA, 40, 0, 0)
+  check(not r.ok and r.why == "carry.blocked", "trees, not cleared: " .. tostring(r.ok) .. " " .. tostring(r.why))
+  same(before, state(0, 0), "after a move blocked by trees")
+  r = remote.call("carry", "move_by", "nauvis", "player", AREA, 40, 0, 0, true)
+  check(r.ok, "trees cleared: " .. tostring(r.why) .. " " .. tostring(r.name))
+  check(r.ok and r.cleared == 4, "trees cleared: " .. tostring(r.cleared))
+  check(not (rock and rock.valid), "trees cleared: the rock is still there")
+  same(before, state(40, 0), "moved over the trees")
+  log("cleared: " .. tostring(r.cleared))
+  r = remote.call("carry", "back")
+  check(r.ok, "back from the trees: " .. tostring(r.why))
+  for _, t in pairs(trees) do if t.valid then t.destroy() end end
+  if rock and rock.valid then rock.destroy() end
+
   -- dropped as a player's print: 15 tiles south, unturned
   r = remote.call("carry", "drop", "nauvis", "player", AREA, { x = 5, y = 3.5 + 15 }, defines.direction.north)
   check(r.ok, "drop: " .. tostring(r.why))

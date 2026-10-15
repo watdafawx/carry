@@ -47,13 +47,17 @@ local function told(player, ok, res, pos, name, record)
   if not ok then
     mark(player, pos)
     if res == "carry.blocked" then
-      return say(player, { "carry.blocked", name and ("[entity=" .. name .. "]") or "?" }, pos)
+      local p = name and prototypes.entity[name]
+      local hint = p and (p.type == "tree" or p.type == "simple-entity" or p.type == "cliff")
+      return say(player, { hint and "carry.blocked-shift" or "carry.blocked", name and ("[entity=" .. name .. "]") or "?" }, pos)
     end
     return say(player, { res })
   end
   if record then last()[player.index] = record end
-  card(player, res.dropped > 0 and { "", { "carry.moved", #res.ents }, " ", { "carry.dropped", res.dropped } }
-    or { "carry.moved", #res.ents })
+  local text = { "", { "carry.moved", #res.ents } }
+  if (res.cleared or 0) > 0 then table.insert(text, " ") table.insert(text, { "carry.cleared", res.cleared }) end
+  if res.dropped > 0 then table.insert(text, " ") table.insert(text, { "carry.dropped", res.dropped }) end
+  card(player, text)
 end
 
 -- picked up: the section into the cursor as a print
@@ -83,7 +87,7 @@ local function holding(player, h)
   return h and s and s.valid_for_read and s.is_blueprint and s.label == h.label
 end
 
--- dropped: moved where the print was put down
+-- dropped: moved where the print was put down (shift-click: trees, rocks and cliffs in the way cleared)
 script.on_event(defines.events.on_pre_build, function(e)
   local player = game.get_player(e.player_index)
   local h = held()[e.player_index]
@@ -104,7 +108,8 @@ script.on_event(defines.events.on_pre_build, function(e)
   if not carry.complete(h.ents, targets, k) then return say(player, { "carry.cant-land" }) end
   local from = {}
   for i, x in ipairs(h.ents) do from[i] = { position = x.position, direction = x.direction } end
-  local ok, res, pos, name = carry.move(player.surface, h.ents, targets, k)
+  local clear = e.build_mode ~= nil and e.build_mode ~= defines.build_mode.normal and player or nil
+  local ok, res, pos, name = carry.move(player.surface, h.ents, targets, k, nil, clear)
   if ok then
     held()[e.player_index] = nil
     storage.clear = storage.clear or {}
@@ -120,6 +125,15 @@ script.on_event(defines.events.on_built_entity, function(e)
   local t = drops()[e.player_index]
   local g = e.entity
   if t and t >= game.tick - 1 and g.valid and g.type == "entity-ghost" and g.tags and g.tags.carry then g.destroy() end
+end)
+
+-- (a shift-click paste marks the trees and rocks under it for deconstruction: the drop cleared what was in the way)
+script.on_event(defines.events.on_marked_for_deconstruction, function(e)
+  local t = e.player_index and drops()[e.player_index]
+  local o = e.entity
+  if t and t >= game.tick - 1 and o.valid and (o.type == "tree" or o.type == "simple-entity" or o.type == "cliff") then
+    o.cancel_deconstruction(o.force, e.player_index)
+  end
 end)
 
 script.on_event(defines.events.on_tick, function()
@@ -172,17 +186,18 @@ remote.add_interface("carry", {
       area = { left_top = { x = area[1][1], y = area[1][2] }, right_bottom = { x = area[2][1], y = area[2][2] } } })
   end,
   -- the entities in `area` moved (dx, dy) and turned k quarters about their middle -> {ok, why, n, dropped}
-  move_by = function(surface_name, force_name, area, dx, dy, k)
+  -- (clear: trees, rocks and cliffs in the way cleared, as a shift-click drop)
+  move_by = function(surface_name, force_name, area, dx, dy, k, clear)
     local s, f = game.get_surface(surface_name), game.forces[force_name]
     local ents = carry.collect(s, f, area)
     if #ents == 0 then return { ok = false, why = "carry.nothing" } end
     local from = {}
     for i, x in ipairs(ents) do from[i] = { position = x.position, direction = x.direction } end
-    local ok, res, pos, name = carry.move(s, ents, carry.shifted(ents, dx, dy, k or 0), k or 0)
+    local ok, res, pos, name = carry.move(s, ents, carry.shifted(ents, dx, dy, k or 0), k or 0, nil, clear or nil)
     if not ok then return { ok = false, why = res, at = pos, name = name } end
     last()[0] = { surface = surface_name, ents = res.ents, targets = from, k = (4 - (k or 0)) % 4,
       powered = res.powered }
-    return { ok = true, n = #res.ents, dropped = res.dropped }
+    return { ok = true, n = #res.ents, dropped = res.dropped, cleared = res.cleared }
   end,
   -- as a player's drop: the section's print put down at `position` facing `direction`
   drop = function(surface_name, force_name, area, position, direction)

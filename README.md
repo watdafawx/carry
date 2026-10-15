@@ -11,7 +11,8 @@ rebuilding: it moves at once.
 3. Click where it should go. A card says how many buildings moved; **Move back** puts it back where it was.
 
 It can land partly on where it stood (moving it a few tiles is fine). If something of your base is in the way, nothing
-moves: a red box shows what's blocking.
+moves: a red box shows what's blocking. **Shift-click** clears trees, rocks and cliffs in the way first (trees and
+rocks are mined into your inventory, cliffs removed); your own buildings still block.
 
 ## What happens to the edges
 
@@ -30,4 +31,4 @@ moves: a red box shows what's blocking.
 
 `python test/run.py --all` (from this folder): a running section (belt with plates, chest, assembler mid-craft, pipe of
 water, a combinator wired to a pole powered from outside) is shifted onto itself, moved back, turned, moved back,
-blocked, and dropped as a player's print; then 2500 belts are moved and back, timed.
+blocked, blocked by trees and a rock then moved with them cleared, and dropped as a player's print; then 2500 belts are moved and back, timed.
