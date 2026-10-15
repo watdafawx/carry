@@ -191,7 +191,28 @@ script.on_event(defines.events.on_tick, function(e)
   r = remote.call("carry", "back")
   check(r.ok, "big back: " .. tostring(r.why))
 
+  -- other mods' hidden helpers in the section: the one without a box moves, the owned one is its mod's business
+  local hx = -20
+  local hc = s.create_entity({ name = "iron-chest", position = { hx + 0.5, 0.5 }, force = f })
+  hc.insert({ name = "iron-plate", count = 7 })
+  s.create_entity({ name = "carry-test-tiny", position = { hx + 1.5, 0.5 }, force = f })
+  s.create_entity({ name = "carry-test-owned", position = { hx + 2.5, 0.5 }, force = f })
+  r = remote.call("carry", "move_by", "nauvis", "player", { { hx, 0 }, { hx + 3, 1 } }, 0, 5, 0)
+  check(r.ok, "helpers: " .. tostring(r.why) .. " " .. tostring(r.name))
+  local mc = s.find_entity("iron-chest", { hx + 0.5, 5.5 })
+  check(mc and mc.get_item_count("iron-plate") == 7, "helpers: the chest didn't move with its plates")
+  check(#s.find_entities_filtered({ name = "carry-test-tiny", area = { { hx + 1, 5 }, { hx + 2, 6 } } }) == 1,
+    "helpers: the one without a box didn't move")
+  r = remote.call("carry", "back")
+  check(r.ok, "helpers back: " .. tostring(r.why))
+  check(s.find_entity("iron-chest", { hx + 0.5, 0.5 }), "helpers back: the chest isn't back")
+
   helpers.write_file("carry-test.txt", table.concat(out, "\n") .. "\n")
   helpers.write_file("carry-test.txt", { "", "big: 2500 belts moved in ", prof, "\n" }, true)
   helpers.write_file("carry-test.txt", (fails == 0 and "ALL PASS" or (fails .. " FAILED")) .. "\n", true)
+end)
+
+-- (as a mod that makes its helper again with its owner: the helper's own clone taken away)
+script.on_event(defines.events.on_entity_cloned, function(e)
+  if e.destination.valid and e.destination.name == "carry-test-owned" then e.destination.destroy() end
 end)

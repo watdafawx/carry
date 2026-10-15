@@ -206,22 +206,75 @@ local function wires(ents, index)
   return inner, outer_circuit, powered
 end
 
+local capture  -- (while clone_all runs: on_entity_cloned's source -> destination pairs)
+--- on_entity_cloned (control.lua): each clone of clone_all noted
+function M.on_cloned(e)
+  if capture and e.source and e.destination then capture[#capture + 1] = { e.source, e.destination } end
+end
+
 --- `list` ({i = entity}, all on `src`) cloned onto `dst`, (dx, dy) off: clone_entities keeps the wires between them;
---- it answers nothing, so each clone is found where it went (by name). -> {i = clone}
+--- it answers nothing, so each clone is taken from on_entity_cloned, else found where it went (by name; a small box,
+--- not a point: an entity without a collision box isn't found at a point). -> {i = clone}
 local function clone_all(src, dst, list, n, dx, dy, force)
-  local ents, at = {}, {}
+  local ents, at, by_unit, by_key = {}, {}, {}, {}
   for i = 1, n do
-    ents[#ents + 1] = list[i]
-    at[i] = { name = list[i].name, x = list[i].position.x + dx, y = list[i].position.y + dy }
+    local e = list[i]
+    ents[#ents + 1] = e
+    at[i] = { name = e.name, x = e.position.x + dx, y = e.position.y + dy }
+    if e.unit_number then by_unit[e.unit_number] = i else by_key[key(e.name, e.position)] = i end
   end
-  src.clone_entities({ entities = ents, destination_offset = { dx, dy }, destination_surface = dst,
+  capture = {}
+  local ok, err = pcall(src.clone_entities, { entities = ents, destination_offset = { dx, dy }, destination_surface = dst,
     destination_force = force, snap_to_grid = false, create_build_effect_smoke = false })
+  local pairs_ = capture
+  capture = nil
+  if not ok then log("carry: clone_entities failed: " .. tostring(err)) end
   local out = {}
-  for i = 1, n do
-    local a = at[i]
-    for _, c in pairs(dst.find_entities_filtered({ name = a.name, position = { a.x, a.y } })) do
-      if math.abs(c.position.x - a.x) < 0.01 and math.abs(c.position.y - a.y) < 0.01 then out[i] = c break end
+  for _, p in ipairs(pairs_) do
+    local s, d = p[1], p[2]
+    if s.valid and d.valid and d.surface == dst then
+      local i = s.unit_number and by_unit[s.unit_number] or by_key[key(s.name, s.position)]
+      if i and not out[i] and d.name == at[i].name then out[i] = d end
     end
+  end
+  for i = 1, n do
+    if not (out[i] and out[i].valid) then
+      out[i] = nil
+      local a = at[i]
+      for _, c in pairs(dst.find_entities_filtered({ name = a.name, area = { { a.x - 0.05, a.y - 0.05 }, { a.x + 0.05, a.y + 0.05 } } })) do
+        if math.abs(c.position.x - a.x) < 0.01 and math.abs(c.position.y - a.y) < 0.01 then out[i] = c break end
+      end
+    end
+  end
+  return out
+end
+
+--- a hidden helper of another entity (a mod's: its clone is that mod's business, made with its owner's)
+local function helper(e)
+  local p = e.prototype
+  return p.hidden or p.has_flag("not-blueprintable") or p.has_flag("not-selectable-in-game")
+    or not (p.mineable_properties and p.mineable_properties.minable)
+end
+
+--- (diagnosis) `ents` cloned to the staging surface and gone again: -> the ones that couldn't be found there
+--- ({name, type, position, near = names of what is at that spot on the stage})
+function M.probe(surface, ents)
+  local b = bounds(ents)
+  local stage = hidden(STAGE, b)
+  local staged = clone_all(surface, stage, ents, #ents, 0, 0, ents[1].force)
+  local out = {}
+  for i, e in ipairs(ents) do
+    if not staged[i] then
+      local near = {}
+      for _, c in pairs(stage.find_entities_filtered({ position = e.position, radius = 1 })) do
+        near[#near + 1] = c.name .. "@" .. c.position.x .. "," .. c.position.y
+      end
+      out[#out + 1] = { name = e.name, type = e.type, position = e.position, near = near }
+      if #out >= 20 then break end
+    end
+  end
+  for _, c in pairs(stage.find_entities_filtered({ area = { { b[1] - 2, b[2] - 2 }, { b[3] + 2, b[4] + 2 } } })) do
+    c.destroy({ raise_destroy = true })
   end
   return out
 end
@@ -276,6 +329,8 @@ local function clear_way(surface, ents, targets, miner)
   return n
 end
 
+local retrying  -- (M.move again without the helpers it couldn't clone)
+
 --- `ents` (on `surface`) moved to `targets` ({i = {position, direction}}), turned k quarters (0: a plain shift).
 --- powered: {i = true} poles to join to power outside even if they have no wire there now (they had before an
 --- earlier move). clear: trees, rocks and cliffs in the way cleared (a player: mined into their inventory; or true).
@@ -304,11 +359,32 @@ function M.move(surface, ents, targets, k, also, clear)
     c.destroy()  -- (an earlier move's leftovers)
   end
   local staged = clone_all(surface, stage, ents, #ents, 0, 0, force)
+  local missing, hard = {}, nil
   for i = 1, #ents do
     if not staged[i] then  -- (couldn't be cloned: nothing has moved yet)
-      for _, c in pairs(staged) do if c.valid then c.destroy({ raise_destroy = true }) end end
-      return false, "carry.cant-clone", from[i].position
+      missing[i] = true
+      if not helper(ents[i]) then hard = hard or i end
+      log("carry: no clone of " .. from[i].name .. " (" .. ents[i].type .. ") at " .. serpent.line(from[i].position))
     end
+  end
+  if next(missing) then
+    for _, c in pairs(staged) do if c.valid then c.destroy({ raise_destroy = true }) end end
+    if hard or retrying then return false, "carry.cant-clone", from[hard or next(missing)].position, from[hard or next(missing)].name end
+    -- (only mods' hidden helpers: moved without them, their owners' mods make them again)
+    local e2, t2, a2, j = {}, {}, {}, {}
+    for i = 1, #ents do
+      if not missing[i] then
+        e2[#e2 + 1], t2[#t2 + 1], j[i] = ents[i], targets[i], #e2 + 1
+      end
+    end
+    for i in pairs(also or {}) do if j[i] then a2[j[i]] = true end end
+    if #e2 == 0 then return false, "carry.cant-clone", from[1].position, from[1].name end
+    retrying = true
+    local r = { pcall(M.move, surface, e2, t2, k, a2, nil) }
+    retrying = false
+    if not r[1] then error(r[2]) end
+    if r[2] and r[3] then r[3].cleared = cleared end
+    return table.unpack(r, 2, 5)
   end
   for _, e in ipairs(ents) do if e.valid then e.destroy({ raise_destroy = true }) end end
   local function back()

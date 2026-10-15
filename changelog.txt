@@ -1,4 +1,11 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.2
+Date: 2026-10-15
+  Bugfixes:
+    - "Couldn't move that" with other mods' hidden helper entities in the section (no collision box, or made again
+      by their mod with their owner): each clone is now taken from the game's clone event, and helpers whose clone
+      their mod takes away are left to that mod. When something still can't move, the message names it.
+---------------------------------------------------------------------------------------------------
 Version: 0.1.1
 Date: 2026-10-15
   Features:

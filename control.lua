@@ -46,6 +46,7 @@ end
 local function told(player, ok, res, pos, name, record)
   if not ok then
     mark(player, pos)
+    if res == "carry.cant-clone" and name then return say(player, { "carry.cant-clone-x", "[entity=" .. name .. "]" }, pos) end
     if res == "carry.blocked" then
       local p = name and prototypes.entity[name]
       local hint = p and (p.type == "tree" or p.type == "simple-entity" or p.type == "cliff")
@@ -106,15 +107,13 @@ script.on_event(defines.events.on_pre_build, function(e)
   local k = math.floor((e.direction or 0) / 4) % 4
   local targets = carry.landing(player.cursor_stack, h.ents, e.position, e.direction or 0)
   if not carry.complete(h.ents, targets, k) then return say(player, { "carry.cant-land" }) end
-  local from = {}
-  for i, x in ipairs(h.ents) do from[i] = { position = x.position, direction = x.direction } end
   local clear = e.build_mode ~= nil and e.build_mode ~= defines.build_mode.normal and player or nil
   local ok, res, pos, name = carry.move(player.surface, h.ents, targets, k, nil, clear)
   if ok then
     held()[e.player_index] = nil
     storage.clear = storage.clear or {}
     storage.clear[e.player_index] = true
-    told(player, ok, res, pos, name, { surface = player.surface.name, ents = res.ents, targets = from, k = (4 - k) % 4,
+    told(player, ok, res, pos, name, { surface = player.surface.name, ents = res.ents, targets = res.from, k = (4 - k) % 4,
       powered = res.powered })
   else
     told(player, ok, res, pos, name)
@@ -136,6 +135,8 @@ script.on_event(defines.events.on_marked_for_deconstruction, function(e)
   end
 end)
 
+script.on_event(defines.events.on_entity_cloned, carry.on_cloned)
+
 script.on_event(defines.events.on_tick, function()
   if not storage.clear or not next(storage.clear) then return end
   for i in pairs(storage.clear) do
@@ -156,11 +157,9 @@ local function move_back(player_index)
   if not r then return false, "carry.none" end
   local s = game.get_surface(r.surface)
   for _, x in ipairs(r.ents) do if not x.valid then return false, "carry.changed" end end
-  local from = {}
-  for i, x in ipairs(r.ents) do from[i] = { position = x.position, direction = x.direction } end
   local ok, res, pos, name = carry.move(s, r.ents, r.targets, r.k, r.powered)
   if ok then
-    last()[player_index] = { surface = r.surface, ents = res.ents, targets = from, k = (4 - r.k) % 4,
+    last()[player_index] = { surface = r.surface, ents = res.ents, targets = res.from, k = (4 - r.k) % 4,
       powered = res.powered }
   end
   return ok, res, pos, name
@@ -191,11 +190,9 @@ remote.add_interface("carry", {
     local s, f = game.get_surface(surface_name), game.forces[force_name]
     local ents = carry.collect(s, f, area)
     if #ents == 0 then return { ok = false, why = "carry.nothing" } end
-    local from = {}
-    for i, x in ipairs(ents) do from[i] = { position = x.position, direction = x.direction } end
     local ok, res, pos, name = carry.move(s, ents, carry.shifted(ents, dx, dy, k or 0), k or 0, nil, clear or nil)
     if not ok then return { ok = false, why = res, at = pos, name = name } end
-    last()[0] = { surface = surface_name, ents = res.ents, targets = from, k = (4 - (k or 0)) % 4,
+    last()[0] = { surface = surface_name, ents = res.ents, targets = res.from, k = (4 - (k or 0)) % 4,
       powered = res.powered }
     return { ok = true, n = #res.ents, dropped = res.dropped, cleared = res.cleared }
   end,
@@ -210,12 +207,17 @@ remote.add_interface("carry", {
     local targets = carry.landing(inv[1], ents, position, direction or 0)
     inv.destroy()
     if not carry.complete(ents, targets, k) then return { ok = false, why = "carry.cant-land" } end
-    local from = {}
-    for i, x in ipairs(ents) do from[i] = { position = x.position, direction = x.direction } end
     local ok, res, pos, name = carry.move(s, ents, targets, k)
     if not ok then return { ok = false, why = res, at = pos, name = name } end
-    last()[0] = { surface = surface_name, ents = res.ents, targets = from, k = (4 - k) % 4, powered = res.powered }
+    last()[0] = { surface = surface_name, ents = res.ents, targets = res.from, k = (4 - k) % 4, powered = res.powered }
     return { ok = true, n = #res.ents, dropped = res.dropped }
+  end,
+  -- (diagnosis) the section in the player's hand cloned to the stage and gone again: what couldn't be found there
+  probe = function(player_index)
+    local h = held()[player_index]
+    if not h then return "nothing held" end
+    for _, x in ipairs(h.ents) do if not x.valid then return "changed" end end
+    return { n = #h.ents, missing = carry.probe(game.get_surface(h.surface), h.ents) }
   end,
   back = function()
     local ok, res, pos, name = move_back(0)
