@@ -31,7 +31,7 @@ local function state(dx, dy)
       st.recipe = e.get_recipe() and e.get_recipe().name
       st.progress = e.crafting_progress
       st.powered = e.is_connected_to_electric_network()
-    elseif e.name == "pipe" then st.water = e.fluidbox[1] and e.fluidbox[1].amount or 0
+    elseif e.name == "pipe" then st.water = e.get_fluid_count("water")
     elseif e.name == "constant-combinator" then
       local c = e.get_wire_connector(defines.wire_connector_id.circuit_red, false)
       st.red = c and #c.connections or 0
@@ -82,7 +82,7 @@ local function setup()
   am.set_recipe("iron-gear-wheel")
   am.insert({ name = "iron-plate", count = 20 })
   local pipe = make("pipe", 9.5, 5.5)
-  pipe.fluidbox[1] = { name = "water", amount = 50 }
+  pipe.set_fluid(1, { name = "water", amount = 50 })
   local cc = make("constant-combinator", 0.5, 6.5)
   cc.get_wire_connector(defines.wire_connector_id.circuit_red, true).connect_to(
     pole.get_wire_connector(defines.wire_connector_id.circuit_red, true), false)
